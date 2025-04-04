@@ -42,14 +42,14 @@ if not os.path.exists("data/documents/persian_wikipedia_qa.txt"):
 @st.cache_resource
 def initialize_resources():
     try:
-        llm = get_llm("nous-hermes")
+        llm = get_llm("persian-llama")
 
         tokenizer = None
 
         folder_path = "data/vector_store"
         index_file = os.path.join(folder_path, "index.faiss")
         if not os.path.exists(folder_path) or not os.path.exists(index_file):
-            st.write("فایل ذخیره‌سازی بردار یافت نشد یا ناقص است، در حال ساخت یک فایل جدید...")
+            st.write("Vector storage file not found or incomplete, creating a new file...")
             vector_store = create_vector_store("data/documents")
         else:
             vector_store = load_vector_store()
@@ -96,7 +96,12 @@ weekly_plan_phrases = [
     "یک برنامه هفتگی می‌خواهم",
     "برنامه هفتگی برای",
     "برنامه هفتگی بساز",
-    "برنامه هفتگی ایجاد کن"
+    "برنامه هفتگی ایجاد کن",
+    "Create a weekly schedule",
+    "I want a weekly schedule",
+    "Weekly schedule for",
+    "Create a weekly schedule",
+    "Create a weekly schedule"
 ]
 
 if user_input and llm and qa_chain:
