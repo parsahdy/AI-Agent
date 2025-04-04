@@ -4,7 +4,7 @@ import os
 
 def load_documents(directory_path):
     if not os.path.exists(directory_path):
-        raise FileNotFoundError(f"Directory not found: {directory_path}")
+        raise FileNotFoundError(f"پوشه یافت نشد: {directory_path}")
 
     documents = []
 
@@ -13,26 +13,24 @@ def load_documents(directory_path):
         try:
             if filename.endswith(".pdf"):
                 loader = PyPDFLoader(file_path)
-                docs = loader.load()
-                for doc in docs:
-                    doc.metadata["source"] = filename
-                documents.extend(docs)
             elif filename.endswith(".docx"):
                 loader = Docx2txtLoader(file_path)
-                docs = loader.load()
-                for doc in docs:
-                    doc.metadata["source"] = filename
-                documents.extend(docs)
+            else:
+                continue
+
+            docs = loader.load()
+            for doc in docs:
+                doc.metadata["source"] = filename
+            documents.extend(docs)
         except Exception as e:
-            print(f"Error reading {filename}: {str(e)}")
+            print(f"Error in reading{filename}: {str(e)}")
             continue
 
     if not documents:
-        raise ValueError(f"No PDF or DOCX files found in directory: {directory_path}")
+        raise ValueError(f"No PDF or DOCX files found: {directory_path}")
 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
-
     return text_splitter.split_documents(documents)
