@@ -12,7 +12,7 @@ st.title("Intelligent Student Counseling Agent")
 @st.cache_resource
 def initialize_resources():
     try:
-        llm = get_llm("ollama")  
+        llm = get_llm("nous-hermes")  
         folder_path = "data/vector_store"
         index_file = os.path.join(folder_path, "index.faiss")
         if not os.path.exists(folder_path) or not os.path.exists(index_file):
@@ -83,9 +83,11 @@ if user_input and llm and qa_chain:
                 response, week_num = create_weekly_plan(user_input, llm)
                 st.session_state.weekly_plan[week_num] = response
         else:
-            with st.spinner("Creating a weekly schedule..."):
+            with st.spinner("Generating response..."):
+                user_input = f"لطفاً به زبان فارسی پاسخ بده: {user_input}"
                 result = qa_chain({"question": user_input})
                 response = result["answer"]
+
 
         st.session_state.messages.append({"role": "assistant", "content": response})
         with st.chat_message("assistant"):
