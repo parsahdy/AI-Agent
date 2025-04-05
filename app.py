@@ -1,21 +1,8 @@
 import streamlit as st
-import os
+from transformers import pipeline
+from planner import create_weekly_plan  
+from knowledge_base import load_vector_store
 from langdetect import detect
-from llm_connector import get_llm
-from knowledge_base import load_vector_store, create_vector_store
-from planner import create_weekly_plan
-from langchain_huggingface import HuggingFacePipeline
-from langchain_core.prompts import PromptTemplate
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from datasets import load_dataset
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-import warnings
-import logging
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-warnings.filterwarnings("ignore", category=Warning)
-logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 st.set_page_config(page_title="Smart Academic Advisor", layout="wide")
 st.title("Smart Academic Advisor")
@@ -26,156 +13,109 @@ st.markdown("""
         direction: rtl;
         text-align: right;
         font-family: 'Tahoma', sans-serif;
+        font-size: 18px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-if not os.path.exists("data/documents/persian_wikipedia_qa.txt"):
-    if not os.path.exists("data/documents"):
-        os.makedirs("data/documents")
-
-    ds = load_dataset("fibonacciai/Persian-Wikipedia-QA")
-    with open("data/documents/persian_wikipedia_qa.txt", "w", encoding="utf-8") as f:
-        for item in ds["train"]:
-            f.write(f"سوال: {item['question']}\nجواب: {item['answer']}\n\n")
-
-@st.cache_resource
-def initialize_resources():
-    try:
-        llm = get_llm("persian-llama")
-
-        tokenizer = None
-
-        folder_path = "data/vector_store"
-        index_file = os.path.join(folder_path, "index.faiss")
-        if not os.path.exists(folder_path) or not os.path.exists(index_file):
-            st.write("Vector storage file not found or incomplete, creating a new file...")
-            vector_store = create_vector_store("data/documents")
-        else:
-            vector_store = load_vector_store()
-
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-        )
-
-        qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            retriever=vector_store.as_retriever(),
-            memory=memory
-        )
-
-        return llm, qa_chain, tokenizer
-
-    except Exception as e:
-        st.error(f"Error loading: {str(e)}")
-        import traceback
-        st.error(f"Error details: {traceback.format_exc()}")
-        return None, None, None
-
-with st.spinner("Loading models... This may take a while.") :
-    llm, qa_chain, tokenizer = initialize_resources()
-
+# مقداردهی اولیه متغیرهای حالت جلسه
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+
 if "weekly_plan" not in st.session_state:
     st.session_state.weekly_plan = {}
 
-st.write("I can give you advice or create a weekly plan for you! For advice, ask your question (e.g., 'How can I focus better when studying?'). For a weekly plan, say 'Create a weekly plan' or 'I want a weekly plan for [topic]'.")
+# تعریف مدل با تنظیمات مناسب
+llm = pipeline(
+    "text-generation",
+    model="HooshvareLab/gpt2-fa",
+    tokenizer="HooshvareLab/gpt2-fa",
+    max_length=512,  # کاهش برای جلوگیری از خطا
+    pad_token_id=5  # تنظیم صریح pad_token_id
+)
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(f'<div class="rtl">{message["content"]}</div>', unsafe_allow_html=True)
+vector_store = load_vector_store()
 
-user_input = st.chat_input("Ask your question...")
+# نمایش پیام‌های قبلی
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(f"<div class='rtl'>{msg['content']}</div>", unsafe_allow_html=True)
 
-weekly_plan_phrases = [
-    "یک برنامه هفتگی بساز",
-    "یک برنامه هفتگی می‌خواهم",
-    "برنامه هفتگی برای",
-    "برنامه هفتگی بساز",
-    "برنامه هفتگی ایجاد کن",
-    "Create a weekly schedule",
-    "I want a weekly schedule",
-    "Weekly schedule for",
-    "Create a weekly schedule",
-    "Create a weekly schedule"
-]
+user_input = st.chat_input("سؤالت را بپرس...")
 
-if user_input and llm and qa_chain:
-    truncated_input = user_input[:400]
-
-    st.session_state.messages.append({"role": "user", "content": truncated_input})
+if user_input:
     with st.chat_message("user"):
-        st.markdown(f'<div class="rtl">{truncated_input}</div>', unsafe_allow_html=True)
-
+        st.markdown(f"<div class='rtl'>{user_input}</div>", unsafe_allow_html=True)
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
     try:
-        user_input_lower = truncated_input.lower()
-        is_weekly_plan_request = any(phrase in user_input_lower for phrase in weekly_plan_phrases)
-
-        if is_weekly_plan_request:
-            with st.spinner("Creating a weekly schedule..."):
-                response, week_num = create_weekly_plan(truncated_input, llm)
-                st.session_state.weekly_plan[week_num] = response
-        else:
-            with st.spinner("Generating response..."):
-                try:
-                    is_persian = detect(truncated_input) == 'fa'
-                except:
-                    is_persian = False
-
-                result = qa_chain.invoke({"question": truncated_input})
-                if "answer" in result:
-                    response = result["answer"]
+        is_farsi = detect(user_input) == "fa"
+    except:
+        is_farsi = True
+    
+    with st.spinner("در حال تولید پاسخ..."):
+        try:
+            if "برنامه هفتگی" in user_input.lower() or "برنامه‌ریزی" in user_input.lower():
+                response_text, week_num = create_weekly_plan(user_input, llm)
+                st.session_state.weekly_plan[week_num] = response_text
+            else:
+                docs = vector_store.similarity_search(user_input, k=3)
+                context = "\n".join([doc.page_content for doc in docs])
+                prompt = f"سؤال: {user_input}\n\nاطلاعات مرتبط:\n{context}\n\nپاسخ مفصل:"
+                
+                response_full = llm(
+                    prompt,
+                    max_new_tokens=200,
+                    do_sample=True,
+                    return_attention_mask=True
+                )
+                
+                print(f"نوع response_full: {type(response_full)}")
+                print(f"مقدار response_full: {response_full}")
+                
+                if isinstance(response_full, list) and len(response_full) > 0 and isinstance(response_full[0], dict):
+                    response_full = response_full[0].get("generated_text", "")
                 else:
-                    response = "I couldn't find a suitable answer. Please clarify your question."
-
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        with st.chat_message("assistant"):
-            st.markdown(f'<div class="rtl">{response}</div>', unsafe_allow_html=True)
-
-        st.rerun()
-
-    except Exception as e:
-        st.error(f"Error processing question: {str(e)}")
-        import traceback
-        st.error(f"Full error details: {traceback.format_exc()}")
+                    response_full = str(response_full)
+                
+                if len(response_full) > len(prompt):
+                    response_text = response_full[len(prompt):].strip()
+                else:
+                    response_text = response_full.strip()
+                
+        except Exception as e:
+            st.error(f"خطا در تولید پاسخ: {str(e)}")
+            response_text = "متأسفانه در تولید پاسخ مشکلی پیش آمد. لطفاً دوباره تلاش کنید."
+    
+    st.session_state.messages.append({"role": "assistant", "content": response_text})
+    with st.chat_message("assistant"):
+        st.markdown(f"<div class='rtl'>{response_text}</div>", unsafe_allow_html=True)
+    
+    st.rerun()
 
 tab1, tab2 = st.tabs(["weekly_plan", "conversation"])
 
 with tab1:
-    st.header("Request a weekly schedule")
-    plan_input = st.text_input("Enter your request for a weekly schedule (for example: 'I want a weekly schedule for studying math.')", key="weekly_plan_input")
+    st.header("درخواست برنامه هفتگی")
+    plan_input = st.text_input("درخواست خود برای برنامه هفتگی را وارد کنید (برای مثال: 'یک برنامه هفتگی برای مطالعه ریاضی می‌خواهم.')", key="weekly_plan_input")
     if plan_input:
-        with st.spinner("Creating a weekly schedule..."):
+        with st.spinner("در حال ایجاد برنامه هفتگی..."):
             response, week_num = create_weekly_plan(plan_input, llm)
             st.session_state.weekly_plan[week_num] = response
             st.markdown(f'<div class="rtl">{response}</div>', unsafe_allow_html=True)
 
-with tab2:
-    st.header("Conversation history")
-    with st.container(height=300):
-        if st.session_state.messages:
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(f'<div class="rtl">{message["content"]}</div>', unsafe_allow_html=True)
-            if st.button("Delete conversation history"):
-                st.session_state.messages = []
-                try:
-                    qa_chain.memory_clear()
-                except:
-                    pass
-                st.rerun()
-        else:
-            st.info("No conversation has taken place yet. Ask your question in the chat section!")
-
-with tab1:
-    st.header("My weekly schedule")
-    weeks = list(st.session_state.weekly_plan.keys())
-    if weeks:
-        selected_week = st.selectbox("Select a week:", weeks)
-        st.markdown(f'<div class="rtl">{st.session_state.weekly_plan[selected_week]}</div>', unsafe_allow_html=True)
+    st.header("تاریخچه گفتگو")
+    if st.session_state.weekly_plan:
+        selected = st.selectbox("هفته مورد نظر را انتخاب کنید:", list(st.session_state.weekly_plan.keys()))
+        st.markdown(f'<div class="rtl">{st.session_state.weekly_plan[selected]}</div>', unsafe_allow_html=True)
     else:
-        st.info("The weekly schedule has not been created yet. Please request a weekly schedule from the chat section or the form above.")
+        st.info("هنوز برنامه‌ای تولید نشده است.")
+
+with tab2:
+    st.header("تاریخچه گفتگو")
+    if st.session_state.messages:
+        if st.button("پاک کردن تاریخچه"):
+            st.session_state.messages = []
+            st.rerun()
+    else:
+        st.info("هنوز گفتگویی انجام نشده است.")
