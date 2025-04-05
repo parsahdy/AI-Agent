@@ -26,13 +26,17 @@ if "weekly_plan" not in st.session_state:
     st.session_state.weekly_plan = {}
 
 # تعریف مدل با تنظیمات مناسب
-llm = pipeline(
-    "text-generation",
-    model="HooshvareLab/gpt2-fa",
-    tokenizer="HooshvareLab/gpt2-fa",
-    max_length=512,  # کاهش برای جلوگیری از خطا
-    pad_token_id=5  # تنظیم صریح pad_token_id
-)
+try:
+    llm = pipeline(
+        "text-generation",
+        model="HooshvareLab/gpt2-fa",
+        tokenizer="HooshvareLab/gpt2-fa",
+        max_length=512,
+        pad_token_id=5
+    )
+except Exception as e:
+    st.error(f"خطا در بارگذاری مدل: {str(e)}")
+    llm = None
 
 vector_store = load_vector_store()
 
@@ -55,6 +59,9 @@ if user_input:
     
     with st.spinner("در حال تولید پاسخ..."):
         try:
+            if llm is None:
+                raise ValueError("مدل LLM بارگذاری نشده است. لطفاً بررسی کنید.")
+
             if "برنامه هفتگی" in user_input.lower() or "برنامه‌ریزی" in user_input.lower():
                 response_text, week_num = create_weekly_plan(user_input, llm)
                 st.session_state.weekly_plan[week_num] = response_text
@@ -66,8 +73,7 @@ if user_input:
                 response_full = llm(
                     prompt,
                     max_new_tokens=200,
-                    do_sample=True,
-                    return_attention_mask=True
+                    do_sample=True
                 )
                 
                 print(f"نوع response_full: {type(response_full)}")
@@ -100,9 +106,12 @@ with tab1:
     plan_input = st.text_input("درخواست خود برای برنامه هفتگی را وارد کنید (برای مثال: 'یک برنامه هفتگی برای مطالعه ریاضی می‌خواهم.')", key="weekly_plan_input")
     if plan_input:
         with st.spinner("در حال ایجاد برنامه هفتگی..."):
-            response, week_num = create_weekly_plan(plan_input, llm)
-            st.session_state.weekly_plan[week_num] = response
-            st.markdown(f'<div class="rtl">{response}</div>', unsafe_allow_html=True)
+            if llm is None:
+                st.error("مدل LLM بارگذاری نشده است. لطفاً بررسی کنید.")
+            else:
+                response, week_num = create_weekly_plan(plan_input, llm)
+                st.session_state.weekly_plan[week_num] = response
+                st.markdown(f'<div class="rtl">{response}</div>', unsafe_allow_html=True)
 
     st.header("تاریخچه گفتگو")
     if st.session_state.weekly_plan:
